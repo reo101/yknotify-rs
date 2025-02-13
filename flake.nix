@@ -14,53 +14,58 @@
   };
 
   outputs = inputs: inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [
-        "aarch64-darwin"
-        "x86_64-darwin"
-      ];
+    systems = [
+      "aarch64-darwin"
+      "x86_64-darwin"
+    ];
 
-      perSystem = { pkgs, system, ... }: {
-        packages.yknotify-rs = pkgs.rustPlatform.buildRustPackage {
-          pname = "yknotify-rs";
-          version = "0.1.0";
+    perSystem = { lib, pkgs, system, ... }: {
+      packages.yknotify-rs = pkgs.rustPlatform.buildRustPackage {
+        pname = "yknotify-rs";
+        version = "0.1.0";
 
-          src = ./.;
+        src = ./.;
 
-          cargoLock.lockFile = ./Cargo.lock;
+        cargoLock.lockFile = ./Cargo.lock;
 
-          nativeBuildInputs = [
-            pkgs.pkg-config
-          ];
-          buildInputs = [
-            pkgs.openssl
-          ];
+        nativeBuildInputs = [
+          pkgs.pkg-config
+        ];
+
+        buildInputs = [
+          pkgs.openssl
+        ];
+
+        meta = {
+          description = "Notify when YubiKey needs touch on macOS";
+          homepage = "https://github.com/reo101/yknotify-rs";
+          license = lib.licenses.mit;
+          mainProgram = "yknotify-rs";
+          platforms = lib.platforms.darwin;
         };
       };
+    };
 
     flake = {
       darwinModules = {
         yknotify-rs = { config, pkgs, lib, ... }:
           let
-            yknotify-rs = pkgs.writeShellScriptBin "yknotify-rs" ''
-              ${lib.getExe pkgs.yknotify-rs} >> $HOME/Library/Logs/yknotify-rs.log 2>&1
-            '';
+            yknotify-rs = inputs.self.packages.${pkgs.hostPlatform.system}.yknotify-rs;
           in {
             options.services.yknotify-rs = {
               enable = lib.mkEnableOption "Enable yknotify-rs launchd service";
             };
 
             config = lib.mkIf config.services.yknotify-rs.enable {
-              services.launchd.agents.yknotify-rs = {
-                enable = true;
-                config = {
+              launchd.user.agents.yknotify-rs = {
+                script = lib.getExe yknotify-rs;
+                serviceConfig = rec {
                   Label = "xyz.reo101.yknotify-rs";
-                  ProgramArguments = [
-                    (lib.getExe yknotify-rs)
-                  ];
+                  ProgramArguments = [ ];
                   RunAtLoad = true;
                   KeepAlive = true;
-                  StandardErrorPath = "$HOME/Library/Logs/yknotify-rs.log";
-                  StandardOutPath = "$HOME/Library/Logs/yknotify-rs.log";
+                  StandardOutPath = "/var/log/${Label}/stdout.log";
+                  StandardErrorPath = "/var/log/${Label}/stderr.log";
                 };
               };
             };
