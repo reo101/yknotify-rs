@@ -58,14 +58,13 @@
 
             config = lib.mkIf config.services.yknotify-rs.enable {
               launchd.user.agents.yknotify-rs = {
-                script = lib.getExe yknotify-rs;
                 serviceConfig = rec {
                   Label = "xyz.reo101.yknotify-rs";
-                  ProgramArguments = [ ];
+                  Program = lib.getExe yknotify-rs;
                   RunAtLoad = true;
                   KeepAlive = true;
-                  StandardOutPath = "/var/log/${Label}/stdout.log";
-                  StandardErrorPath = "/var/log/${Label}/stderr.log";
+                  # StandardOutPath = "/var/log/${Label}/stdout.log";
+                  # StandardErrorPath = "/var/log/${Label}/stderr.log";
                 };
               };
             };
