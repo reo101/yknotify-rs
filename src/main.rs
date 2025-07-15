@@ -1,10 +1,31 @@
 use chrono::Utc;
+use clap::Parser;
 use eyre::Result;
 use notify_rust::{set_application, Notification};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
+
+#[derive(Parser, Debug)]
+struct Args {
+    /// Name of the macOS system sound to play when a new touch request is detected.
+    ///
+    /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+    /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Purr`.
+    #[arg(long)]
+    request_sound: Option<String>,
+
+    /// Name of the macOS system sound to play when a touch request is dismissed (for example, when
+    /// the YubiKey is touched).
+    ///
+    /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+    /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Pop`.
+    #[arg(long)]
+    dismissed_sound: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +46,8 @@ struct TouchEvent {
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+
+    let args = Args::parse();
 
     set_application("com.apple.keychainaccess")?;
 
@@ -59,11 +82,17 @@ async fn main() -> Result<()> {
                 };
                 println!("{}", serde_json::to_string(&event)?);
 
-                Notification::new()
+                let mut notification = Notification::new();
+
+                notification
                     .summary("YubiKey Touch Needed")
-                    .body("FIDO2 authentication is required.")
-                    .sound_name("Purr")
-                    .show()?;
+                    .body("FIDO2 authentication is required.");
+
+                if let Some(sound) = args.request_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
             } else if entry.event_message.ends_with("stopQueue") {
                 let event = TouchEvent {
                     event_type: "FIDO2".to_string(),
@@ -71,11 +100,17 @@ async fn main() -> Result<()> {
                 };
                 println!("{}", serde_json::to_string(&event)?);
 
-                Notification::new()
+                let mut notification = Notification::new();
+
+                notification
                     .summary("YubiKey Touch Confirmed")
-                    .body("YubiKey touch was detected.")
-                    .sound_name("Pop")
-                    .show()?;
+                    .body("YubiKey touch was detected.");
+
+                if let Some(sound) = args.dismissed_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
             }
         } else if entry.process_image_path.ends_with("usbsmartcardreaderd")
             && entry
@@ -96,11 +131,17 @@ async fn main() -> Result<()> {
                 };
                 println!("{}", serde_json::to_string(&event)?);
 
-                Notification::new()
+                let mut notification = Notification::new();
+
+                notification
                     .summary("YubiKey Touch Needed")
-                    .body("OpenPGP authentication is required.")
-                    .sound_name("Purr")
-                    .show()?;
+                    .body("OpenPGP authentication is required.");
+
+                if let Some(sound) = args.request_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
             } else if !openpgp_needed && openpgp_notifying {
                 openpgp_notifying = false;
 
@@ -110,11 +151,17 @@ async fn main() -> Result<()> {
                 };
                 println!("{}", serde_json::to_string(&event)?);
 
-                Notification::new()
+                let mut notification = Notification::new();
+
+                notification
                     .summary("YubiKey Touch Confirmed")
-                    .body("YubiKey touch was detected.")
-                    .sound_name("Pop")
-                    .show()?;
+                    .body("YubiKey touch was detected.");
+
+                if let Some(sound) = args.dismissed_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
             }
         }
     }
