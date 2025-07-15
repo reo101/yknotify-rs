@@ -1,13 +1,15 @@
-use chrono::Utc;
 use clap::Parser;
 use eyre::Result;
 use notify_rust::{set_application, Notification};
-use serde::{Deserialize, Serialize};
-use std::process::Stdio;
+use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command,
 };
+use tracing::{debug, info, level_filters::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+
+use std::process::Stdio;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -36,16 +38,18 @@ struct LogEntry {
     event_message: String,
 }
 
-#[derive(Serialize)]
-struct TouchEvent {
-    ts: String,
-    #[serde(rename = "type")]
-    event_type: String,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+
+    tracing_subscriber::registry()
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let args = Args::parse();
 
@@ -59,10 +63,13 @@ async fn main() -> Result<()> {
     let stdout = child.stdout.take().unwrap();
     let mut reader = BufReader::new(stdout).lines();
 
+    info!("listening for events");
+
     let mut openpgp_notifying = false;
 
     while let Some(line) = reader.next_line().await? {
         let Ok(entry) = serde_json::from_str::<LogEntry>(&line) else {
+            debug!(event = ?line, "failed to parse event");
             continue;
         };
 
@@ -73,14 +80,10 @@ async fn main() -> Result<()> {
                 .is_some_and(|s| s.ends_with("IOHIDFamily"))
             && entry.event_message.contains("IOHIDLibUserClient:0x")
         {
-            println!("{}", entry.event_message);
+            debug!(kind = %"fido2", event_message = %entry.event_message, "received event");
 
             if entry.event_message.ends_with("startQueue") {
-                let event = TouchEvent {
-                    event_type: "FIDO2".to_string(),
-                    ts: Utc::now().to_string(),
-                };
-                println!("{}", serde_json::to_string(&event)?);
+                info!(kind = %"FIDO2", event = %"start", "dispatching notification for touch event");
 
                 let mut notification = Notification::new();
 
@@ -94,11 +97,7 @@ async fn main() -> Result<()> {
 
                 notification.show()?;
             } else if entry.event_message.ends_with("stopQueue") {
-                let event = TouchEvent {
-                    event_type: "FIDO2".to_string(),
-                    ts: Utc::now().to_string(),
-                };
-                println!("{}", serde_json::to_string(&event)?);
+                info!(kind = %"FIDO2", event = %"stop", "dispatching notification for touch event");
 
                 let mut notification = Notification::new();
 
@@ -118,18 +117,19 @@ async fn main() -> Result<()> {
                 .as_deref()
                 .is_some_and(|s| s.ends_with("CryptoTokenKit"))
         {
+            debug!(kind = %"OpenPGP", event_message = %entry.event_message, "received event");
+
             // This is an OpenPGP message, but we don't know if a notification is
             // needed yet because it might be a repeat.
             let openpgp_needed = entry.event_message == "Time extension received";
 
             if openpgp_needed && !openpgp_notifying {
+                // We received an event that indicates that an OpenPGP touch is needed, plus the
+                // most recent one we saw was not *also* of the same type (we're not in a
+                // "notifying" state already).
                 openpgp_notifying = true;
 
-                let event = TouchEvent {
-                    event_type: "OpenPGP".to_string(),
-                    ts: Utc::now().to_string(),
-                };
-                println!("{}", serde_json::to_string(&event)?);
+                info!(kind = %"OpenPGP", event = %"start", "dispatching notification for touch event");
 
                 let mut notification = Notification::new();
 
@@ -143,13 +143,11 @@ async fn main() -> Result<()> {
 
                 notification.show()?;
             } else if !openpgp_needed && openpgp_notifying {
+                // We received a closing event (one that indicates an OpenPGP touch is no longer
+                // needed), and we *are* in a "notifying" state.
                 openpgp_notifying = false;
 
-                let event = TouchEvent {
-                    event_type: "OpenPGP".to_string(),
-                    ts: Utc::now().to_string(),
-                };
-                println!("{}", serde_json::to_string(&event)?);
+                info!(kind = %"OpenPGP", event = %"stop", "dispatching notification for touch event");
 
                 let mut notification = Notification::new();
 
