@@ -15,7 +15,7 @@ struct Args {
     ///
     /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
     /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Purr`.
-    #[arg(long)]
+    #[arg(long, env = "YKNOTIFY_REQUEST_SOUND")]
     request_sound: Option<String>,
 
     /// Name of the macOS system sound to play when a touch request is dismissed (for example, when
@@ -23,7 +23,7 @@ struct Args {
     ///
     /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
     /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Pop`.
-    #[arg(long)]
+    #[arg(long, env = "YKNOTIFY_DISMISSED_SOUND")]
     dismissed_sound: Option<String>,
 }
 
