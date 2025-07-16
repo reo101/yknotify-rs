@@ -64,7 +64,13 @@ A nix-darwin module is available for managing yknotify-rs as a macOS LaunchAgent
         modules = [
           yknotify-rs.darwinModules.default
           {
-            services.yknotify-rs.enable = true;
+            services.yknotify-rs = {
+              enable = true;
+              
+              # You can set notification sounds (find available sounds in /System/Library/Sounds):
+              requestSound = "Purr";
+              dismissedSound = "Pop";
+            };
           }
         ];
       };
@@ -103,8 +109,61 @@ mv target/release/yknotify-rs /usr/local/bin/
 
 ## Usage
 
-```sh
-yknotify-rs
+```
+Usage: yknotify-rs [OPTIONS]
+
+Options:
+      --request-sound <REQUEST_SOUND>
+          Name of the macOS system sound to play when a new touch request is detected.
+
+          Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+          `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Purr`.
+
+          [env: YKNOTIFY_REQUEST_SOUND=]
+
+      --fido2-request-sound <FIDO2_REQUEST_SOUND>
+          Name of the macOS system sound to play when a new FIDO2 touch request is detected.
+
+          Overrides the `--request-sound` option, which sets the request sound for all types of
+          touch request.
+
+          [env: YKNOTIFY_FIDO2_REQUEST_SOUND=]
+
+      --openpgp-request-sound <OPENPGP_REQUEST_SOUND>
+          Name of the macOS system sound to play when a new OpenPGP touch request is detected.
+
+          Overrides the `--request-sound` option, which sets the request sound for all types of
+          touch request.
+
+          [env: YKNOTIFY_OPENPGP_REQUEST_SOUND=]
+
+      --dismissed-sound <DISMISSED_SOUND>
+          Name of the macOS system sound to play when a touch request is dismissed (for example,
+          when the YubiKey is touched).
+
+          Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+          `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Pop`.
+
+          [env: YKNOTIFY_DISMISSED_SOUND=]
+
+      --fido2-dismissed-sound <FIDO2_DISMISSED_SOUND>
+          Name of the macOS system sound to play when a FIDO2 touch request is dismissed.
+
+          Overrides the `--dismissed-sound` option, which sets the dismissed sound for all types of
+          touch request.
+
+          [env: YKNOTIFY_FIDO2_DISMISSED_SOUND=]
+
+      --openpgp-dismissed-sound <OPENPGP_DISMISSED_SOUND>
+          Name of the macOS system sound to play when an OpenPGP touch request is dismissed.
+
+          Overrides the `--dismissed-sound` option, which sets the dismissed sound for all types of
+          touch request.
+
+          [env: YKNOTIFY_OPENPGP_DISMISSED_SOUND=]
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 Example output:
