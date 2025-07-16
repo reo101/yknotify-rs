@@ -51,23 +51,58 @@
         yknotify-rs = { config, pkgs, lib, ... }:
           let
             yknotify-rs = inputs.self.packages.${pkgs.hostPlatform.system}.yknotify-rs;
-          in {
+          in
+          {
             options.services.yknotify-rs = {
               enable = lib.mkEnableOption "Enable yknotify-rs launchd service";
-            };
 
-            config = lib.mkIf config.services.yknotify-rs.enable {
-              launchd.user.agents.yknotify-rs = {
-                serviceConfig = rec {
-                  Label = "xyz.reo101.yknotify-rs";
-                  Program = lib.getExe yknotify-rs;
-                  RunAtLoad = true;
-                  KeepAlive = true;
-                  # StandardOutPath = "/var/log/${Label}/stdout.log";
-                  # StandardErrorPath = "/var/log/${Label}/stderr.log";
-                };
+              requestSound = lib.mkOption {
+                description = ''
+                  Name of the macOS system sound to play when a new touch request is detected.
+                  
+                  Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+                  `~/Library/Sounds`. The sound name must be a filename without an extension, e.g.
+                  `Purr`.
+                '';
+                type = lib.types.nullOr lib.types.str;
+                default = null;
+              };
+
+              dismissedSound = lib.mkOption {
+                description = ''
+                  Name of the macOS system sound to play when a new touch request is detected.
+                  
+                  Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+                  `~/Library/Sounds`. The sound name must be a filename without an extension, e.g.
+                  `Pop`.
+                '';
+                type = lib.types.nullOr lib.types.str;
+                default = null;
               };
             };
+
+            config =
+              let
+                cfg = config.services.yknotify-rs;
+              in
+              lib.mkIf cfg.enable {
+                launchd.user.agents.yknotify-rs = {
+                  serviceConfig = {
+                    Label = "xyz.reo101.yknotify-rs";
+                    Program = lib.getExe yknotify-rs;
+                    RunAtLoad = true;
+                    KeepAlive = true;
+                    # StandardOutPath = "/var/log/${Label}/stdout.log";
+                    # StandardErrorPath = "/var/log/${Label}/stderr.log";
+                  };
+                  environment = {
+                    YKNOTIFY_REQUEST_SOUND = lib.mkIf (cfg.requestSound != null)
+                      cfg.requestSound;
+                    YKNOTIFY_DISMISSED_SOUND = lib.mkIf (cfg.dismissedSound != null)
+                      cfg.dismissedSound;
+                  };
+                };
+              };
           };
 
         default = inputs.self.outputs.darwinModules.yknotify-rs;

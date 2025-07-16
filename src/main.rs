@@ -1,14 +1,33 @@
-use color_eyre::Report;
+use clap::Parser;
 use eyre::Result;
-use log::error;
 use notify_rust::{set_application, Notification};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
+use tracing::{debug, info, level_filters::LevelFilter};
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, EnvFilter};
+
 use std::process::Stdio;
-use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use tokio::sync::Mutex;
-use tokio::time::{sleep, Duration, Instant};
+
+#[derive(Parser, Debug)]
+struct Args {
+    /// Name of the macOS system sound to play when a new touch request is detected.
+    ///
+    /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+    /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Purr`.
+    #[arg(long, env = "YKNOTIFY_REQUEST_SOUND")]
+    request_sound: Option<String>,
+
+    /// Name of the macOS system sound to play when a touch request is dismissed (for example, when
+    /// the YubiKey is touched).
+    ///
+    /// Available sounds can be found in `/System/Library/Sounds`, `/Library/Sounds` or
+    /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Pop`.
+    #[arg(long, env = "YKNOTIFY_DISMISSED_SOUND")]
+    dismissed_sound: Option<String>,
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,128 +38,132 @@ struct LogEntry {
     event_message: String,
 }
 
-struct TouchState {
-    fido2_needed: bool,
-    openpgp_needed: bool,
-    last_notify: Instant,
-}
+#[tokio::main]
+async fn main() -> Result<()> {
+    color_eyre::install()?;
 
-impl Default for TouchState {
-    fn default() -> Self {
-        Self {
-            fido2_needed: false,
-            openpgp_needed: false,
-            last_notify: Instant::now(),
-        }
-    }
-}
+    tracing_subscriber::registry()
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
-#[derive(Serialize)]
-struct TouchEvent {
-    ts: String,
-    #[serde(rename = "type")]
-    event_type: String,
-}
+    let args = Args::parse();
 
-impl TouchState {
-    async fn check_and_notify(&mut self) -> Result<()> {
-        let now = Instant::now();
-        if now.duration_since(self.last_notify) < Duration::from_secs(1) {
-            return Ok(());
-        }
+    set_application("com.apple.keychainaccess")?;
 
-        let timestamp = chrono::Utc::now().to_rfc3339();
-        if self.fido2_needed {
-            let event = TouchEvent {
-                event_type: "FIDO2".to_string(),
-                ts: timestamp.clone(),
-            };
-            println!("{}", serde_json::to_string(&event)?);
-
-            Notification::new()
-                .summary("YubiKey Touch Needed")
-                .body("FIDO2 authentication is required.")
-                .show()?;
-        }
-        if self.openpgp_needed {
-            let event = TouchEvent {
-                event_type: "OpenPGP".to_string(),
-                ts: timestamp,
-            };
-            println!("{}", serde_json::to_string(&event)?);
-
-            Notification::new()
-                .summary("YubiKey Touch Needed")
-                .body("OpenPGP authentication is required.")
-                .show()?;
-        }
-        self.last_notify = now;
-
-        Ok(())
-    }
-}
-
-async fn stream_logs() -> Result<()> {
     let mut cmd = Command::new("log");
     cmd.args(["stream", "--level", "debug", "--style", "ndjson"])
         .stdout(Stdio::piped());
 
     let mut child = cmd.spawn()?;
     let stdout = child.stdout.take().unwrap();
-    let reader = BufReader::new(stdout).lines();
+    let mut reader = BufReader::new(stdout).lines();
 
-    let state = Arc::new(Mutex::new(TouchState::default()));
-    let state_clone = Arc::clone(&state);
+    info!("listening for events");
 
-    tokio::spawn(async move {
-        loop {
-            sleep(Duration::from_secs(1)).await;
-            let mut state = state_clone.lock().await;
-            if let Err(err) = state.check_and_notify().await {
-                error!("check_and_notify failed: {:?}", err);
-            }
-        }
-    });
+    let mut openpgp_notifying = false;
 
-    tokio::pin!(reader);
     while let Some(line) = reader.next_line().await? {
-        if let Ok(entry) = serde_json::from_str::<LogEntry>(&line) {
-            let mut state = state.lock().await;
-            match entry.process_image_path.as_str() {
-                "/kernel"
-                    if entry
-                        .sender_image_path
-                        .as_deref()
-                        .map_or(false, |s| s.ends_with("IOHIDFamily")) =>
-                {
-                    state.fido2_needed = entry.event_message.contains("IOHIDLibUserClient:0x")
-                        && entry.event_message.ends_with("startQueue");
+        let Ok(entry) = serde_json::from_str::<LogEntry>(&line) else {
+            debug!(event = ?line, "failed to parse event");
+            continue;
+        };
+
+        if entry.process_image_path.as_str() == "/kernel"
+            && entry
+                .sender_image_path
+                .as_deref()
+                .is_some_and(|s| s.ends_with("IOHIDFamily"))
+            && entry.event_message.contains("IOHIDLibUserClient:0x")
+        {
+            debug!(kind = %"fido2", event_message = %entry.event_message, "received event");
+
+            if entry.event_message.ends_with("startQueue") {
+                info!(kind = %"FIDO2", event = %"start", "dispatching notification for touch event");
+
+                let mut notification = Notification::new();
+
+                notification
+                    .summary("YubiKey Touch Needed")
+                    .body("FIDO2 authentication is required.");
+
+                if let Some(sound) = args.request_sound.as_ref() {
+                    notification.sound_name(sound);
                 }
-                _ if entry.process_image_path.ends_with("usbsmartcardreaderd")
-                    && entry
-                        .subsystem
-                        .as_deref()
-                        .map_or(false, |s| s.ends_with("CryptoTokenKit")) =>
-                {
-                    state.openpgp_needed = entry.event_message == "Time extension received";
+
+                notification.show()?;
+            } else if entry.event_message.ends_with("stopQueue") {
+                info!(kind = %"FIDO2", event = %"stop", "dispatching notification for touch event");
+
+                let mut notification = Notification::new();
+
+                notification
+                    .summary("YubiKey Touch Confirmed")
+                    .body("YubiKey touch was detected.");
+
+                if let Some(sound) = args.dismissed_sound.as_ref() {
+                    notification.sound_name(sound);
                 }
-                _ => {}
+
+                notification.show()?;
             }
-            state.check_and_notify().await?;
+        } else if entry.process_image_path.ends_with("usbsmartcardreaderd")
+            && entry
+                .subsystem
+                .as_deref()
+                .is_some_and(|s| s.ends_with("CryptoTokenKit"))
+        {
+            debug!(kind = %"OpenPGP", event_message = %entry.event_message, "received event");
+
+            // This is an OpenPGP message, but we don't know if a notification is
+            // needed yet because it might be a repeat.
+            let openpgp_needed = entry.event_message == "Time extension received";
+
+            if openpgp_needed && !openpgp_notifying {
+                // We received an event that indicates that an OpenPGP touch is needed, plus the
+                // most recent one we saw was not *also* of the same type (we're not in a
+                // "notifying" state already).
+                openpgp_notifying = true;
+
+                info!(kind = %"OpenPGP", event = %"start", "dispatching notification for touch event");
+
+                let mut notification = Notification::new();
+
+                notification
+                    .summary("YubiKey Touch Needed")
+                    .body("OpenPGP authentication is required.");
+
+                if let Some(sound) = args.request_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
+            } else if !openpgp_needed && openpgp_notifying {
+                // We received a closing event (one that indicates an OpenPGP touch is no longer
+                // needed), and we *are* in a "notifying" state.
+                openpgp_notifying = false;
+
+                info!(kind = %"OpenPGP", event = %"stop", "dispatching notification for touch event");
+
+                let mut notification = Notification::new();
+
+                notification
+                    .summary("YubiKey Touch Confirmed")
+                    .body("YubiKey touch was detected.");
+
+                if let Some(sound) = args.dismissed_sound.as_ref() {
+                    notification.sound_name(sound);
+                }
+
+                notification.show()?;
+            }
         }
     }
 
     child.wait().await?;
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    color_eyre::install()?;
-
-    set_application("com.apple.keychainaccess")?;
-
-    stream_logs().await.map_err(Report::from)?;
-
     Ok(())
 }
