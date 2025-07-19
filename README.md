@@ -66,8 +66,8 @@ A nix-darwin module is available for managing yknotify-rs as a macOS LaunchAgent
           {
             services.yknotify-rs = {
               enable = true;
-              
-              # You can set notification sounds (find available sounds in /System/Library/Sounds):
+
+              # You can set notification sounds (find available sounds in `/System/Library/Sounds`):
               requestSound = "Purr";
               dismissedSound = "Pop";
             };
@@ -168,11 +168,11 @@ Options:
 
 Example output:
 
-```json
-{"ts":"2025-02-12T20:09:03Z","type":"FIDO2"}
-{"ts":"2025-02-12T20:09:14Z","type":"OpenPGP"}
 ```
-
+2025-07-19T16:57:42.475000Z  INFO yknotify_rs: listening for events
+2025-07-19T16:57:53.343860Z  INFO yknotify_rs: dispatching notification for touch event kind=FIDO2 event=start
+2025-07-19T16:57:54.949215Z  INFO yknotify_rs: dispatching notification for touch event kind=FIDO2 event=stop
+```
 
 ## Credits
 
