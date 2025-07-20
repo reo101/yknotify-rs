@@ -20,6 +20,28 @@ struct Args {
     #[arg(long, env = "YKNOTIFY_REQUEST_SOUND")]
     request_sound: Option<String>,
 
+    /// Name of the macOS system sound to play when a new FIDO2 touch request is detected.
+    ///
+    /// Overrides the `--request-sound` option, which sets the request sound for all types of touch
+    /// request.
+    #[arg(
+        long,
+        conflicts_with = "request_sound",
+        env = "YKNOTIFY_FIDO2_REQUEST_SOUND"
+    )]
+    fido2_request_sound: Option<String>,
+
+    /// Name of the macOS system sound to play when a new OpenPGP touch request is detected.
+    ///
+    /// Overrides the `--request-sound` option, which sets the request sound for all types of touch
+    /// request.
+    #[arg(
+        long,
+        conflicts_with = "request_sound",
+        env = "YKNOTIFY_OPENPGP_REQUEST_SOUND"
+    )]
+    openpgp_request_sound: Option<String>,
+
     /// Name of the macOS system sound to play when a touch request is dismissed (for example, when
     /// the YubiKey is touched).
     ///
@@ -27,6 +49,28 @@ struct Args {
     /// `~/Library/Sounds`. The sound name must be a filename without an extension, e.g. `Pop`.
     #[arg(long, env = "YKNOTIFY_DISMISSED_SOUND")]
     dismissed_sound: Option<String>,
+
+    /// Name of the macOS system sound to play when a FIDO2 touch request is dismissed.
+    ///
+    /// Overrides the `--dismissed-sound` option, which sets the dismissed sound for all types of
+    /// touch request.
+    #[arg(
+        long,
+        conflicts_with = "request_sound",
+        env = "YKNOTIFY_FIDO2_DISMISSED_SOUND"
+    )]
+    fido2_dismissed_sound: Option<String>,
+
+    /// Name of the macOS system sound to play when an OpenPGP touch request is dismissed.
+    ///
+    /// Overrides the `--dismissed-sound` option, which sets the dismissed sound for all types of
+    /// touch request.
+    #[arg(
+        long,
+        conflicts_with = "request_sound",
+        env = "YKNOTIFY_OPENPGP_DISMISSED_SOUND"
+    )]
+    openpgp_dismissed_sound: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -91,7 +135,11 @@ async fn main() -> Result<()> {
                     .summary("YubiKey Touch Needed")
                     .body("FIDO2 authentication is required.");
 
-                if let Some(sound) = args.request_sound.as_ref() {
+                if let Some(sound) = args
+                    .fido2_request_sound
+                    .as_ref()
+                    .or(args.request_sound.as_ref())
+                {
                     notification.sound_name(sound);
                 }
 
@@ -105,7 +153,11 @@ async fn main() -> Result<()> {
                     .summary("YubiKey Touch Confirmed")
                     .body("YubiKey touch was detected.");
 
-                if let Some(sound) = args.dismissed_sound.as_ref() {
+                if let Some(sound) = args
+                    .fido2_dismissed_sound
+                    .as_ref()
+                    .or(args.dismissed_sound.as_ref())
+                {
                     notification.sound_name(sound);
                 }
 
@@ -137,7 +189,11 @@ async fn main() -> Result<()> {
                     .summary("YubiKey Touch Needed")
                     .body("OpenPGP authentication is required.");
 
-                if let Some(sound) = args.request_sound.as_ref() {
+                if let Some(sound) = args
+                    .openpgp_request_sound
+                    .as_ref()
+                    .or(args.request_sound.as_ref())
+                {
                     notification.sound_name(sound);
                 }
 
@@ -155,7 +211,11 @@ async fn main() -> Result<()> {
                     .summary("YubiKey Touch Confirmed")
                     .body("YubiKey touch was detected.");
 
-                if let Some(sound) = args.dismissed_sound.as_ref() {
+                if let Some(sound) = args
+                    .openpgp_dismissed_sound
+                    .as_ref()
+                    .or(args.dismissed_sound.as_ref())
+                {
                     notification.sound_name(sound);
                 }
 
